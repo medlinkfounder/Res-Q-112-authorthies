@@ -67,20 +67,18 @@
     font-weight: 600;
     flex-shrink: 0; /* Prevent this from shrinking */
   }
-  
-  /* **UPDATED:** Styles for the new info blocks layout */
   .info-blocks-container {
-      flex-grow: 1; /* Takes up remaining space */
+      flex-grow: 1;
       display: flex;
       flex-direction: column;
       gap: 12px;
-      overflow: hidden; /* Important for flexbox sizing */
+      overflow: hidden;
   }
   .info-block {
-      flex: 1; /* Each block takes equal space */
+      flex: 1;
       display: flex;
       flex-direction: column;
-      min-height: 0; /* Allows shrinking below content size */
+      min-height: 0;
   }
   .info-block-content {
       flex-grow: 1;
@@ -90,7 +88,6 @@
       border-radius: 8px;
       padding: 8px;
   }
-
   .touristItem {
     padding: 6px 8px;
     border-bottom: 1px solid var(--card-border);
@@ -129,21 +126,20 @@
   .sun-icon { display: none; }
   body.light-theme .moon-icon { display: none; }
   body.light-theme .sun-icon { display: block; }
-
   @media (max-width: 900px) {
     body { flex-direction: column; }
     #sidebar {
-      width: 100%; box-sizing: border-box; flex-direction: column; /* Stack vertically on tablet */
+      width: 100%; box-sizing: border-box; flex-direction: column;
       height: 40vh; max-height: 300px;
     }
-    .info-blocks-container { flex-direction: row; } /* Side-by-side on tablet */
+    .info-blocks-container { flex-direction: row; }
     #zoneInfo { order: -1; }
     #theme-switcher { position: absolute; top: 15px; right: 15px; }
     #map-container { height: 60vh; padding: 10px; }
   }
   @media (max-width: 500px) {
     #sidebar { height: 50vh; max-height: none; }
-    .info-blocks-container { flex-direction: column; } /* Stack on mobile */
+    .info-blocks-container { flex-direction: column; }
     #map-container { height: 50vh; }
   }
 </style>
@@ -163,7 +159,7 @@
             <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.701-10.5-10.5 0-3.51 1.713-6.625 4.43-8.56a.75.75 0 01.818.162z" clip-rule="evenodd"></path></svg>
         </button>
     </div>
-    <div id="zoneInfo">Loading Zone...</div>
+    <div id="zoneInfo">Loading Zones...</div>
     <div class="info-blocks-container">
         <div class="info-block">
             <h3>Tourists</h3>
@@ -179,7 +175,6 @@
         </div>
     </div>
   </div>
-
   <div id="map-container">
     <div id="map"></div>
   </div>
@@ -193,7 +188,7 @@ themeSwitcher.addEventListener('click', () => {
     localStorage.setItem('theme', currentTheme);
 });
 
-// --- ORIGINAL FIREBASE & MAP LOGIC (UNCHANGED) ---
+// --- FIREBASE & MAP LOGIC ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
@@ -213,29 +208,40 @@ const db = getDatabase(app);
 const map = L.map('map').setView([20.5937, 78.9629], 6);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'&copy; OpenStreetMap contributors' }).addTo(map);
 
-let currentZoneLayer = null;
-let currentZoneGeoJSON = null;
-let currentZoneIsCircle = false;
+// --- FIX: Create a FeatureGroup to hold all zone layers ---
+const zoneGroup = L.featureGroup().addTo(map);
 let touristMarkers = {};
 let markerStates = {};
 
-onValue(ref(db, 'zones/currentZone'), snap => {
-  const z = snap.val();
-  if (!z) return;
-  if (currentZoneLayer) map.removeLayer(currentZoneLayer);
-  currentZoneGeoJSON = null;
-  currentZoneIsCircle = false;
-
-  if (z.type === 'circle') {
-    currentZoneLayer = L.circle([z.center.lat, z.center.lng], { radius: z.radius, color: '#FF6648' }).addTo(map);
-    currentZoneIsCircle = true;
-    document.getElementById('zoneInfo').textContent = `Circle Zone (radius ${Math.round(z.radius)} m)`;
-  } else if (z.type === 'polygon') {
-    currentZoneLayer = L.polygon(z.points.map(p => [p.lat, p.lng]), { color: '#FF6648' }).addTo(map);
-    currentZoneGeoJSON = currentZoneLayer.toGeoJSON();
-    document.getElementById('zoneInfo').textContent = `Polygon Zone (${z.points.length} pts)`;
+// --- FIX: Listen to the parent 'zones' path to get ALL zones ---
+onValue(ref(db, 'zones'), snap => {
+  const zones = snap.val();
+  zoneGroup.clearLayers(); // Clear old zones before drawing new ones
+  if (!zones) {
+    document.getElementById('zoneInfo').textContent = "No Active Zones";
+    return;
   }
-  map.fitBounds(currentZoneLayer.getBounds(), { padding:[40,40] });
+
+  let zoneCount = 0;
+  for (const zoneId in zones) {
+      const z = zones[zoneId];
+      let zoneLayer;
+      if (z.type === 'circle' && z.center) {
+        zoneLayer = L.circle([z.center.lat, z.center.lng], { radius: z.radius, color: '#FF6648' });
+      } else if (z.type === 'polygon' && z.points) {
+        zoneLayer = L.polygon(z.points.map(p => [p.lat, p.lng]), { color: '#FF6648' });
+      }
+
+      if (zoneLayer) {
+        zoneGroup.addLayer(zoneLayer);
+        zoneCount++;
+      }
+  }
+
+  document.getElementById('zoneInfo').textContent = `${zoneCount} Active Zone(s)`;
+  if (zoneCount > 0) {
+      map.fitBounds(zoneGroup.getBounds(), { padding:[40,40] });
+  }
 });
 
 onValue(ref(db, 'tourists'), snapshot => {
@@ -244,6 +250,8 @@ onValue(ref(db, 'tourists'), snapshot => {
     const t = data[id];
     const lat = t.latitude ?? t.lat;
     const lng = t.longitude ?? t.lng;
+    if (lat === undefined || lng === undefined) continue; // Skip if no coords
+
     if (!touristMarkers[id]) {
       touristMarkers[id] = L.marker([lat, lng]).addTo(map).bindPopup(`Tourist: ${id}`);
       markerStates[id] = { outside: false };
@@ -260,29 +268,42 @@ const turfScript = document.createElement('script');
 turfScript.src = 'https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js';
 document.head.appendChild(turfScript);
 
+// --- FIX: Update checkInsideZone to check against ALL zones in the zoneGroup ---
 function checkInsideZone(id, lat, lng) {
-  if (!currentZoneLayer) return;
-  let inside = false;
-  if (currentZoneIsCircle && currentZoneLayer instanceof L.Circle) {
-    const center = currentZoneLayer.getLatLng();
-    inside = map.distance(center, L.latLng(lat, lng)) <= currentZoneLayer.getRadius();
-  } else if (currentZoneGeoJSON && window.turf) {
-    inside = turf.booleanPointInPolygon(turf.point([lng, lat]), currentZoneGeoJSON);
-  }
+  if (zoneGroup.getLayers().length === 0) return;
+
+  let insideAnyZone = false;
+  const point = window.turf ? turf.point([lng, lat]) : null;
+
+  zoneGroup.eachLayer(layer => {
+    if (insideAnyZone) return; // Already found they are inside one zone
+
+    if (layer instanceof L.Circle) {
+      const center = layer.getLatLng();
+      if (map.distance(center, L.latLng(lat, lng)) <= layer.getRadius()) {
+        insideAnyZone = true;
+      }
+    } else if (layer instanceof L.Polygon && point) {
+      if (turf.booleanPointInPolygon(point, layer.toGeoJSON())) {
+        insideAnyZone = true;
+      }
+    }
+  });
+
   const marker = touristMarkers[id];
-  if (!markerStates[id]) markerStates[id] = { outside: !inside };
-  if (!inside && !markerStates[id].outside) {
+  if (!markerStates[id]) markerStates[id] = { outside: !insideAnyZone };
+
+  if (!insideAnyZone && !markerStates[id].outside) {
     markerStates[id].outside = true;
-    addNotification(`⚠️ Tourist <span>${id}</span> left the zone!`);
-  } else if (inside && markerStates[id].outside) {
+    addNotification(`⚠️ Tourist <span>${id}</span> left all zones!`);
+  } else if (insideAnyZone && markerStates[id].outside) {
     markerStates[id].outside = false;
-    addNotification(`✅ Tourist <span>${id}</span> re-entered the zone`);
+    addNotification(`✅ Tourist <span>${id}</span> re-entered a zone`);
   }
 }
 
 function updateTouristList() {
   const list = document.getElementById('touristList');
-  // list.innerHTML = "<h3>Tourists</h3>"; // H3 is now outside
   list.innerHTML = "";
   for (const id in touristMarkers) {
     const st = markerStates[id] && markerStates[id].outside ? "outside" : "inside";
@@ -301,7 +322,6 @@ function addHistory(msg) {
   hbox.innerHTML = `<div class="hist">${time} – ${msg}</div>` + hbox.innerHTML;
 }
 </script>
-
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </body>
 </html>
