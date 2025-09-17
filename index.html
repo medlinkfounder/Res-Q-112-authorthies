@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Authority – Tourist Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;700;900&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+  :root {
+    --bg-color: #000000;
+    --sidebar-bg: #1a1a1a;
+    --map-container-bg: #101010;
+    --text-color: #e0e0e0;
+    --text-color-light: #ffffff;
+    --text-highlight: #00ffff;
+    --accent-color: #ff4747;
+    --card-bg: #2a2a2a;
+    --card-border: rgba(0, 255, 255, 0.2);
+  }
+  body.light-theme {
+    --bg-color: #f0f2f5;
+    --sidebar-bg: #ffffff;
+    --map-container-bg: #e4e9f0;
+    --text-color: #333333;
+    --text-color-light: #000000;
+    --text-highlight: #0056b3;
+    --accent-color: #d90429;
+    --card-bg: #ffffff;
+    --card-border: #d1d5db;
+  }
+  body {
+    margin: 0;
+    font-family: 'Space Grotesk', sans-serif;
+    background: var(--bg-color);
+    color: var(--text-color);
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+    flex-direction: row;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  #sidebar {
+    width: 320px;
+    background: var(--sidebar-bg);
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 4px 0 12px rgba(0,0,0,0.1);
+    transition: background-color 0.3s ease;
+  }
+  #sidebar h2, #sidebar h3 {
+    text-align: center;
+    margin: 5px 0 10px 0; /* Added bottom margin */
+    font-weight: 700;
+    font-family: 'Exo 2', sans-serif;
+    color: var(--text-color-light);
+  }
+  #zoneInfo {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    padding: 8px;
+    border-radius: 6px;
+    text-align: center;
+    color: var(--text-highlight);
+    font-weight: 600;
+    flex-shrink: 0; /* Prevent this from shrinking */
+  }
+  
+  /* **UPDATED:** Styles for the new info blocks layout */
+  .info-blocks-container {
+      flex-grow: 1; /* Takes up remaining space */
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden; /* Important for flexbox sizing */
+  }
+  .info-block {
+      flex: 1; /* Each block takes equal space */
+      display: flex;
+      flex-direction: column;
+      min-height: 0; /* Allows shrinking below content size */
+  }
+  .info-block-content {
+      flex-grow: 1;
+      overflow-y: auto;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 8px;
+  }
+
+  .touristItem {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--card-border);
+    font-size: 14px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .inside { color: #22c55e; font-weight: 600; }
+  .outside { color: var(--accent-color); font-weight: 600; }
+  .notif, .hist { margin-bottom: 6px; font-size: 13px; }
+  .notif span { font-weight: bold; }
+  #map-container {
+    flex: 1;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--map-container-bg);
+    transition: background-color 0.3s ease;
+  }
+  #map {
+    width: 100%;
+    height: 100%;
+    border-radius: 20px;
+    border: 3px solid var(--card-border);
+    box-shadow: 0 6px 16px rgba(0,0,0,.2);
+  }
+  .leaflet-tile { filter: brightness(0.9) contrast(0.9); }
+  body.light-theme .leaflet-tile { filter: none; }
+  #theme-switcher {
+    background: none; border: 1px solid var(--card-border); border-radius: 50%; width: 32px; height: 32px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 6px;
+    color: var(--text-color-light); align-self: flex-end; margin-bottom: 5px;
+  }
+  #theme-switcher svg { width: 100%; height: 100%; }
+  .sun-icon { display: none; }
+  body.light-theme .moon-icon { display: none; }
+  body.light-theme .sun-icon { display: block; }
+
+  @media (max-width: 900px) {
+    body { flex-direction: column; }
+    #sidebar {
+      width: 100%; box-sizing: border-box; flex-direction: column; /* Stack vertically on tablet */
+      height: 40vh; max-height: 300px;
+    }
+    .info-blocks-container { flex-direction: row; } /* Side-by-side on tablet */
+    #zoneInfo { order: -1; }
+    #theme-switcher { position: absolute; top: 15px; right: 15px; }
+    #map-container { height: 60vh; padding: 10px; }
+  }
+  @media (max-width: 500px) {
+    #sidebar { height: 50vh; max-height: none; }
+    .info-blocks-container { flex-direction: column; } /* Stack on mobile */
+    #map-container { height: 50vh; }
+  }
+</style>
+<script>
+    (function() {
+        const currentTheme = localStorage.getItem('theme');
+        if (currentTheme === 'light') { document.body.classList.add('light-theme'); }
+    })();
+</script>
+</head>
+<body>
+  <div id="sidebar">
+    <div class="flex justify-between items-center">
+        <h2>Tourist Monitoring</h2>
+        <button id="theme-switcher" title="Toggle theme">
+            <svg class="moon-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.106a.75.75 0 010 1.06l-1.591 1.59a.75.75 0 11-1.06-1.06l1.59-1.591a.75.75 0 011.06 0zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zM17.894 17.894a.75.75 0 011.06 0l1.59 1.591a.75.75 0 11-1.06 1.06l-1.591-1.59a.75.75 0 010-1.06zM12 21a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0v-2.25A.75.75 0 0112 21zM5.106 17.894a.75.75 0 010-1.06l1.591-1.59a.75.75 0 111.06 1.06l-1.59 1.591a.75.75 0 01-1.06 0zM3 12a.75.75 0 01.75-.75h2.25a.75.75 0 010 1.5H3.75A.75.75 0 013 12zM6.106 5.106a.75.75 0 011.06 0l1.59 1.591a.75.75 0 11-1.06 1.06l-1.591-1.59a.75.75 0 010-1.06z"></path></svg>
+            <svg class="sun-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.701-10.5-10.5 0-3.51 1.713-6.625 4.43-8.56a.75.75 0 01.818.162z" clip-rule="evenodd"></path></svg>
+        </button>
+    </div>
+    <div id="zoneInfo">Loading Zone...</div>
+    <div class="info-blocks-container">
+        <div class="info-block">
+            <h3>Tourists</h3>
+            <div id="touristList" class="info-block-content"></div>
+        </div>
+        <div class="info-block">
+            <h3>Notifications</h3>
+            <div id="notifications" class="info-block-content"></div>
+        </div>
+        <div class="info-block">
+            <h3>Travel History</h3>
+            <div id="history" class="info-block-content"></div>
+        </div>
+    </div>
+  </div>
+
+  <div id="map-container">
+    <div id="map"></div>
+  </div>
+
+<script type="module">
+// --- THEME SWITCHER LOGIC ---
+const themeSwitcher = document.getElementById('theme-switcher');
+themeSwitcher.addEventListener('click', () => {
+    document.body.classList.toggle('light-theme');
+    const currentTheme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
+    localStorage.setItem('theme', currentTheme);
+});
+
+// --- ORIGINAL FIREBASE & MAP LOGIC (UNCHANGED) ---
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAzwiwp0ByoUkofWPJG1Ux8BY8ueCDwVjM",
+  authDomain: "geo-fencing-202f9.firebaseapp.com",
+  databaseURL: "https://geo-fencing-202f9-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "geo-fencing-202f9",
+  storageBucket: "geo-fencing-202f9.firebasestorage.app",
+  messagingSenderId: "815479242725",
+  appId: "1:815479242725:web:0eaae779912a495b94f90c",
+  measurementId: "G-WB7LFFPT4D"
+};
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const map = L.map('map').setView([20.5937, 78.9629], 6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'&copy; OpenStreetMap contributors' }).addTo(map);
+
+let currentZoneLayer = null;
+let currentZoneGeoJSON = null;
+let currentZoneIsCircle = false;
+let touristMarkers = {};
+let markerStates = {};
+
+onValue(ref(db, 'zones/currentZone'), snap => {
+  const z = snap.val();
+  if (!z) return;
+  if (currentZoneLayer) map.removeLayer(currentZoneLayer);
+  currentZoneGeoJSON = null;
+  currentZoneIsCircle = false;
+
+  if (z.type === 'circle') {
+    currentZoneLayer = L.circle([z.center.lat, z.center.lng], { radius: z.radius, color: '#FF6648' }).addTo(map);
+    currentZoneIsCircle = true;
+    document.getElementById('zoneInfo').textContent = `Circle Zone (radius ${Math.round(z.radius)} m)`;
+  } else if (z.type === 'polygon') {
+    currentZoneLayer = L.polygon(z.points.map(p => [p.lat, p.lng]), { color: '#FF6648' }).addTo(map);
+    currentZoneGeoJSON = currentZoneLayer.toGeoJSON();
+    document.getElementById('zoneInfo').textContent = `Polygon Zone (${z.points.length} pts)`;
+  }
+  map.fitBounds(currentZoneLayer.getBounds(), { padding:[40,40] });
+});
+
+onValue(ref(db, 'tourists'), snapshot => {
+  const data = snapshot.val() || {};
+  for (const id in data) {
+    const t = data[id];
+    const lat = t.latitude ?? t.lat;
+    const lng = t.longitude ?? t.lng;
+    if (!touristMarkers[id]) {
+      touristMarkers[id] = L.marker([lat, lng]).addTo(map).bindPopup(`Tourist: ${id}`);
+      markerStates[id] = { outside: false };
+    } else {
+      touristMarkers[id].setLatLng([lat, lng]);
+    }
+    checkInsideZone(id, lat, lng);
+    addHistory(`${id} moved to (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+  }
+  updateTouristList();
+});
+
+const turfScript = document.createElement('script');
+turfScript.src = 'https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js';
+document.head.appendChild(turfScript);
+
+function checkInsideZone(id, lat, lng) {
+  if (!currentZoneLayer) return;
+  let inside = false;
+  if (currentZoneIsCircle && currentZoneLayer instanceof L.Circle) {
+    const center = currentZoneLayer.getLatLng();
+    inside = map.distance(center, L.latLng(lat, lng)) <= currentZoneLayer.getRadius();
+  } else if (currentZoneGeoJSON && window.turf) {
+    inside = turf.booleanPointInPolygon(turf.point([lng, lat]), currentZoneGeoJSON);
+  }
+  const marker = touristMarkers[id];
+  if (!markerStates[id]) markerStates[id] = { outside: !inside };
+  if (!inside && !markerStates[id].outside) {
+    markerStates[id].outside = true;
+    addNotification(`⚠️ Tourist <span>${id}</span> left the zone!`);
+  } else if (inside && markerStates[id].outside) {
+    markerStates[id].outside = false;
+    addNotification(`✅ Tourist <span>${id}</span> re-entered the zone`);
+  }
+}
+
+function updateTouristList() {
+  const list = document.getElementById('touristList');
+  // list.innerHTML = "<h3>Tourists</h3>"; // H3 is now outside
+  list.innerHTML = "";
+  for (const id in touristMarkers) {
+    const st = markerStates[id] && markerStates[id].outside ? "outside" : "inside";
+    list.innerHTML += `<div class="touristItem"><span>${id}</span><span class="${st}">${st}</span></div>`;
+  }
+}
+
+function addNotification(msg) {
+  const box = document.getElementById('notifications');
+  box.innerHTML = `<div class="notif">${msg}</div>` + box.innerHTML;
+}
+
+function addHistory(msg) {
+  const hbox = document.getElementById('history');
+  const time = new Date().toLocaleTimeString();
+  hbox.innerHTML = `<div class="hist">${time} – ${msg}</div>` + hbox.innerHTML;
+}
+</script>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</body>
+</html>
